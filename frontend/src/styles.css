@@ -1,0 +1,163 @@
+:root {
+  color: #172033;
+  background: #f7f8fb;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #23415f;
+  border-radius: 6px;
+  background: #23415f;
+  color: white;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+button:hover {
+  background: #15293f;
+}
+
+input {
+  border: 1px solid #aeb8c6;
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 32px 20px;
+}
+
+header {
+  margin-bottom: 24px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+.panel {
+  background: white;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.create-form {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+}
+
+[role="alert"] {
+  background: #fff1f0;
+  border: 1px solid #ffb4a9;
+  border-radius: 6px;
+  color: #9f1d12;
+  margin: 16px 0;
+  padding: 12px;
+}
+
+.workspace {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(320px, 1.2fr);
+  margin-top: 16px;
+}
+
+.run-list,
+.gate-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.run-list button {
+  align-items: center;
+  background: #f8fbff;
+  color: #172033;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.run-list strong,
+.phase-track span,
+.gate-list strong {
+  background: #e8eef7;
+  border-radius: 999px;
+  color: #23415f;
+  padding: 4px 8px;
+}
+
+.detail {
+  display: grid;
+  gap: 18px;
+}
+
+.phase-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.phase-track .active {
+  background: #23415f;
+  color: white;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reason {
+  max-width: 360px;
+}
+
+.gate-list li {
+  border-bottom: 1px solid #edf0f5;
+  display: grid;
+  gap: 4px;
+  padding-bottom: 8px;
+}
+
+.gate-list small {
+  color: #657386;
+}
+
+@media (max-width: 760px) {
+  .create-form,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
