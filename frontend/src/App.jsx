@@ -88,7 +88,7 @@ function App() {
     }
   }
 
-  async function writePassedGate() {
+  async function runGate() {
     if (!activeRun) {
       return;
     }
@@ -99,18 +99,18 @@ function App() {
       return;
     }
     try {
-      await request(`/api/loop-runs/${activeRun.id}/gates`, {
+      // 运行真门禁：后端跑真命令并按真实结果写 GateRecord（不再手点 passed）。
+      await request(`/api/loop-runs/${activeRun.id}/gates/run`, {
         method: 'POST',
-        body: JSON.stringify({
-          phase: activeRun.phase,
-          gate_name: gate,
-          status: 'passed',
-          evidence: `${gate} passed by e2e`,
-        }),
+        body: JSON.stringify({ gate_name: gate }),
       });
       setGates(await request(`/api/loop-runs/${activeRun.id}/gates`));
     } catch (caught) {
-      setError(caught.body?.error || caught.message);
+      if (caught.body?.error === 'gate_not_runnable') {
+        setError(`门禁 ${gate} 过重，请用 CLI（verify-all / test-e2e）运行后再推进`);
+      } else {
+        setError(caught.body?.error || caught.message);
+      }
     }
   }
 
@@ -191,8 +191,8 @@ function App() {
 
               <div className="actions">
                 {forwardTargets[activeRun.phase] ? (
-                  <button type="button" onClick={writePassedGate}>
-                    写入通过门禁
+                  <button type="button" onClick={runGate}>
+                    运行门禁
                   </button>
                 ) : null}
                 {legalTargets.map((target) => (

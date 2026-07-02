@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('A12：创建 LoopRun、写入通过门禁、推进阶段并看到变化', async ({ page }) => {
+test('A12：创建 LoopRun、运行门禁、推进阶段并看到变化', async ({ page }) => {
   await page.goto('/');
 
   await page.getByLabel('标题').fill(`E2E LoopRun ${Date.now()}`);
@@ -11,7 +11,7 @@ test('A12：创建 LoopRun、写入通过门禁、推进阶段并看到变化', 
   await expect(page.getByRole('button', { name: '推进到 design' })).toBeVisible();
   await expect(page.getByRole('button', { name: '推进到 code' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: '写入通过门禁' }).click();
+  await page.getByRole('button', { name: '运行门禁' }).click();
   await expect(page.getByText('spec_check', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '推进到 design' }).click();
 
