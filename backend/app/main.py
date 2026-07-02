@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import db, executor, intake
+from . import context, db, executor, intake
 from .gate_runner import GATE_PHASE, GateNotRunnable, UnknownGate, run_gate
 from .models import (
     FeatureIntakeRequest,
@@ -259,6 +259,20 @@ def list_executions(run_id: str):
             "SELECT * FROM phase_executions WHERE loop_run_id=? ORDER BY created_at, rowid", (run_id,)
         ).fetchall()
     return [_row_to_execution(r) for r in rows]
+
+
+# ---- H3 阶段上下文拼装（F003）----
+@app.get("/api/loop-runs/{run_id}/context")
+def get_context(run_id: str, phase: str | None = None):
+    """按 phase 确定性拼装上下文并返回 manifest（来源 + 内容 hash）。"""
+    with db.connect() as conn:
+        run = _row_to_loop_run(_get_loop_run_or_404(conn, run_id))
+    try:
+        return context.assemble(run, phase)
+    except context.ContextError as e:
+        raise AppError(409, "context_input_missing", reason=e.reason) from e
+    except ValueError as e:
+        raise AppError(422, "validation_error", field="phase", reason=str(e)) from e
 
 
 def _latest_gate_passed(conn, run_id: str, gate_name: str) -> bool:
