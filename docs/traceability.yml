@@ -1,0 +1,70 @@
+# LoopForge 追踪矩阵（机器可读）
+# 每条需求 -> status / acceptance(test+gate) / commits / open_gaps。
+# tier0 过渡产物（手写）；终态由 check-traceability / verify-all 自动校验与导出（tier1 issue #3）。
+head: "80cd5b3"
+verify_all: PASSED
+
+requirements:
+  - id: R-LOOPRUN-001
+    desc: LoopRun 阶段状态机（spec->design->code->test->review->done + 打回 + 非法拒绝）
+    status: done
+    acceptance:
+      - {id: A6, test: "backend/tests/test_api.py::test_forward_with_passed_gate_succeeds", gate: backend_tests}
+      - {id: A7, test: "backend/tests/test_api.py::test_forward_without_gate_returns_gate_required", gate: backend_tests}
+      - {id: A8, test: "backend/tests/test_api.py::test_illegal_skip_transition_rejected", gate: backend_tests}
+      - {id: SM, test: "backend/tests/test_state_machine.py::test_forward_transitions_and_required_gate", gate: backend_tests}
+    commits: {green: f4b37a3}
+    open_gaps: []
+
+  - id: R-GATE-001
+    desc: 阶段前进必须依赖最新 passed 的脚本 GateRecord，不认 LLM 自报
+    status: done
+    acceptance:
+      - {id: A7, test: "backend/tests/test_api.py::test_forward_without_gate_returns_gate_required", gate: backend_tests}
+    commits: {green: f4b37a3}
+    open_gaps: []
+
+  - id: R-GATE-002
+    desc: 门禁写入源真实化——GateRecord 由真实门禁运行结果写入，UI 不能手点 passed
+    status: partial
+    acceptance:
+      - {id: RUN-1, test: "backend/tests/test_gate_run.py::test_run_spec_check_passes_and_enables_forward", gate: backend_tests}
+      - {id: RUN-2, test: "backend/tests/test_gate_run.py::test_run_e2e_gate_not_runnable", gate: backend_tests}
+      - {id: RUN-3, test: "backend/tests/test_gate_run.py::test_failed_gate_blocks_and_pass_unblocks", gate: backend_tests}
+    commits: {red: 83961e5, green: 834e473, frontend: 80cd5b3}
+    open_gaps:
+      - "raw POST /api/loop-runs/{id}/gates 未限制 runner 身份，curl 仍可写 passed（tier1 issue #3）"
+      - "design_check 仅最小结构校验，非前置阻断门禁（tier1）"
+
+  - id: R-FRONTEND-001
+    desc: 前端关键路径 A12（创建/运行门禁/推进）/ A13（合法目标 + gate_required）
+    status: done
+    acceptance:
+      - {id: A12, test: "e2e/looprun.spec.js", gate: e2e_tests}
+      - {id: A13, test: "e2e/looprun.spec.js", gate: e2e_tests}
+    commits: {red: 63c76c3, green: 5b12066, tier0: 80cd5b3}
+    open_gaps: []
+
+  - id: R-VISIBILITY-001
+    desc: 任务 / 测试 / 门禁状态可见
+    status: partial
+    acceptance:
+      - {id: VIS-1, artifact: "docs/iter0-status.md"}
+      - {id: VIS-2, artifact: "docs/traceability.yml"}
+    commits: {}
+    open_gaps: ["手写审计；终态应由 verify-all / dogfood 自动导出（tier1）"]
+
+gates:
+  spec_check:     {runner: "app.gate_runner._spec_check", via: endpoint}
+  design_check:   {runner: "app.gate_runner._design_check", via: endpoint, note: "最小结构校验；前置阻断门禁留 tier1"}
+  backend_tests:  {runner: "pytest", via: "endpoint + scripts/test-backend"}
+  contract_tests: {runner: "pytest tests/test_api.py", via: "endpoint + scripts/test-contract"}
+  e2e_tests:      {runner: "scripts/test-e2e.ps1", via: CLI, note: "过重，不从 endpoint 跑"}
+
+deferred_tier1:
+  issue: "https://github.com/zhaohuijuan2017/agentloop/issues/3"
+  items:
+    - "API /gates runner 身份收紧（防 curl 旁路）"
+    - "check-spec / check-design 独立脚本 + design_check 前置阻断门禁"
+    - "superpowers plan 解析 + check-plan（重跑 Run: 命令，不信 - [x]）"
+    - "dogfood：LoopRun 自管自建 + 状态自动导出"

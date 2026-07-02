@@ -84,12 +84,14 @@ http://127.0.0.1:5173
 2. 点击“创建 LoopRun”。
 3. 页面会进入 `LoopRun` 详情，初始阶段为 `spec`。
 
-### 5.2 写入门禁并推进阶段
+### 5.2 运行门禁并推进阶段
 
-1. 在详情区点击“写入通过门禁”。
-2. 页面会新增当前阶段对应的 `GateRecord`，例如 `spec_check`。
-3. 点击“推进到 design”。
+1. 在详情区点击“运行门禁”。
+2. 后端会**运行当前阶段对应门禁的真命令**（如 `spec_check`），并按**真实结果**写入 `GateRecord`（passed / failed）——页面不能再手动标 `passed`。
+3. 结果为 passed 后，点击“推进到 design”。
 4. 当前阶段会从 `spec` 变为 `design`。
+
+> `e2e_tests` 过重、不从页面同步运行，点击会提示改用 CLI（`scripts/test-e2e.ps1` / `verify-all`）。
 
 后续阶段的前进门禁如下：
 
@@ -126,7 +128,16 @@ Content-Type: application/json
 {"title":"演示 LoopRun"}
 ```
 
-写入门禁记录：
+运行门禁（推荐 —— 后端跑真命令，按真实结果写入 `GateRecord`）：
+
+```http
+POST /api/loop-runs/{id}/gates/run
+Content-Type: application/json
+
+{"gate_name":"spec_check"}
+```
+
+写入门禁记录（原始端点，tier0 未做身份收紧，见 §10 限制）：
 
 ```http
 POST /api/loop-runs/{id}/gates
@@ -167,6 +178,7 @@ Content-Type: application/json
 | `illegal_transition` | 409 | 非法阶段流转 |
 | `gate_required` | 409 | 缺少已通过的必需门禁 |
 | `rollback_reason_required` | 409 | 打回缺少 `reason` |
+| `gate_not_runnable` | 409 | 该门禁（如 `e2e_tests`）不从 endpoint 跑，请用 CLI |
 
 ## 7. 验收与门禁
 
@@ -254,3 +266,13 @@ powershell -ExecutionPolicy Bypass -File scripts\test-e2e.ps1
 ### 为什么页面不提供任意跳阶段入口？
 
 非法流转由后端状态机和测试覆盖。前端只暴露当前阶段的合法目标，避免为了测试非法场景而提供坏入口。
+
+## 10. 当前限制（tier0）
+
+tier0 收口已经把"页面手点 passed 自证"堵掉，但硬门禁尚未完全不可旁路。诚实声明如下（完整审计见 `docs/iter0-status.md`，机器可读矩阵见 `docs/traceability.yml`）：
+
+- **门禁写入源已真实化**：页面"运行门禁"经 `POST /gates/run` 让后端跑真命令、按真实结果写 `GateRecord`，页面不能再手动标 `passed`。
+- **仍可旁路（留 tier1，GitHub issue #3）**：原始 `POST /gates` 端点未做 runner 身份校验，`curl` 仍可直接写 `passed`。tier0 只堵住产品自己的 UI 自证入口；API 层不可旁路化的硬化在 tier1。
+- **`design_check`**：目前是最小结构校验（SPEC 含必备章节），不是"设计未澄清就不许进 Code"的前置阻断门禁（tier1）。
+- **`e2e_tests`**：过重，由 CLI（`test-e2e.ps1` / `verify-all`）产出，不从页面运行；页面点击会提示改用 CLI。
+- **状态可见性**：`docs/iter0-status.md` / `docs/traceability.yml` 目前手写维护，终态计划由 verify-all / dogfood 自动导出（tier1）。
