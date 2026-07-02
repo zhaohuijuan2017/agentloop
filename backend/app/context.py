@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import intake
+from . import assets, intake
 from .executor import artifacts_dir
 from .state_machine import Phase
 
@@ -26,7 +26,7 @@ class ContextError(Exception):
 class Role:
     name: str
     required: bool
-    resolve: Callable[[dict], list[Path]]
+    resolve: Callable[[dict, Phase], list[Path]]
 
 
 def _rel(path: Path) -> str:
@@ -35,7 +35,7 @@ def _rel(path: Path) -> str:
     return str(p).replace("\\", "/")
 
 
-def _resolve_requirement(run: dict) -> list[Path]:
+def _resolve_requirement(run: dict, _phase: Phase) -> list[Path]:
     f_id = run.get("f_id")
     if not f_id:
         raise ContextError("LoopRun 未关联 F 文档（缺 f_id）")
@@ -45,12 +45,16 @@ def _resolve_requirement(run: dict) -> list[Path]:
     return [p]
 
 
-def _resolve_rules(_run: dict) -> list[Path]:
-    d = intake.repo_root() / "docs" / "rules"
-    return sorted(d.glob("*.md")) if d.is_dir() else []
+def _resolve_rules(_run: dict, phase: Phase) -> list[Path]:
+    # H4：只注入注册表中绑定到该 phase 的 rules 资产（渐进加载，非全量）。
+    return assets.asset_paths(phase, "rules")
 
 
-def _resolve_prior_spec_draft(run: dict) -> list[Path]:
+def _resolve_skills(_run: dict, phase: Phase) -> list[Path]:
+    return assets.asset_paths(phase, "skill")
+
+
+def _resolve_prior_spec_draft(run: dict, _phase: Phase) -> list[Path]:
     f_id = run.get("f_id")
     if not f_id:
         return []
@@ -65,12 +69,14 @@ PHASE_INPUTS: dict[Phase, list[Role]] = {
     Phase.spec: [
         Role("requirement", True, _resolve_requirement),
         Role("rules", False, _resolve_rules),
+        Role("skill", False, _resolve_skills),
         Role("prior_artifact", False, _resolve_prior_spec_draft),
     ],
 }
 _DEFAULT_ROLES = [
     Role("requirement", True, _resolve_requirement),
     Role("rules", False, _resolve_rules),
+    Role("skill", False, _resolve_skills),
 ]
 
 
@@ -83,7 +89,7 @@ def assemble(run: dict, phase: str | None = None) -> dict:
     roles = PHASE_INPUTS.get(ph, _DEFAULT_ROLES)
     manifest: list[dict] = []
     for role in roles:
-        for p in sorted(role.resolve(run)):
+        for p in sorted(role.resolve(run, ph)):
             data = p.read_bytes()
             manifest.append({
                 "role": role.name,

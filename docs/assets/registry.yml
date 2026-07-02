@@ -1,0 +1,17 @@
+# H4 阶段资产注册表（F004）：声明 rules / skills 绑定到哪些 phase。
+# 注册表只管「绑定关系」；资产本体是 Markdown 文档。
+# 校验（引用文件存在、kind/phase 在枚举内）见 scripts/check-assets。
+# 拼装时（走 F003 上下文通道）只注入与当前 phase 匹配的资产（渐进加载）。
+assets:
+  - id: project-rules
+    kind: rules
+    path: docs/rules/project-rules.md
+    phases: [spec, design, code, test, review]
+  - id: issue-format
+    kind: rules
+    path: docs/rules/issue-format.md
+    phases: [spec]
+  - id: spec-writing-skill
+    kind: skill
+    path: docs/assets/skills/spec-writing.md
+    phases: [spec]

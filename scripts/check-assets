@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# 门禁: check-assets —— 校验阶段资产注册表（F004 / docs/assets/registry.yml）。
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY="backend/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="backend/.venv/bin/python"
+[ -x "$PY" ] || PY="python"
+"$PY" scripts/check_assets.py "$@"
