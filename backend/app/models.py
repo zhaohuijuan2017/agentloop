@@ -33,6 +33,10 @@ class TransitionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
+class GateRunRequest(BaseModel):
+    gate_name: str = Field(min_length=1, max_length=100)
+
+
 # ---- 响应体 ----
 class LoopRun(BaseModel):
     id: str

@@ -11,8 +11,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import db
+from .gate_runner import GATE_PHASE, GateNotRunnable, UnknownGate, run_gate
 from .models import (
     GateRecordCreate,
+    GateRunRequest,
     LoopRunCreate,
     LoopRunUpdate,
     TransitionRequest,
@@ -155,6 +157,33 @@ def list_gates(run_id: str):
             "SELECT * FROM gate_records WHERE loop_run_id=? ORDER BY created_at", (run_id,)
         ).fetchall()
     return [_row_to_gate(r) for r in rows]
+
+
+@app.post("/api/loop-runs/{run_id}/gates/run", status_code=201)
+def run_gate_endpoint(run_id: str, payload: GateRunRequest):
+    """运行门禁：跑真命令，按真实结果写 GateRecord（tier0 B —— 取代手点 passed）。"""
+    with db.connect() as conn:
+        _get_loop_run_or_404(conn, run_id)
+        try:
+            status, evidence = run_gate(payload.gate_name)
+        except UnknownGate as e:
+            raise AppError(
+                422, "validation_error", field="gate_name", reason=f"unknown gate: {e.gate_name}"
+            ) from e
+        except GateNotRunnable as e:
+            raise AppError(409, "gate_not_runnable", gate=e.gate_name) from e
+        rec = {
+            "id": str(uuid.uuid4()), "loop_run_id": run_id,
+            "phase": GATE_PHASE[payload.gate_name].value,
+            "gate_name": payload.gate_name, "status": status,
+            "evidence": evidence, "created_at": now_iso(),
+        }
+        conn.execute(
+            "INSERT INTO gate_records VALUES "
+            "(:id,:loop_run_id,:phase,:gate_name,:status,:evidence,:created_at)",
+            rec,
+        )
+    return rec
 
 
 def _latest_gate_passed(conn, run_id: str, gate_name: str) -> bool:
