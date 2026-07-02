@@ -1,123 +1,223 @@
-# LoopForge · 迭代 0 SPEC —— 任务 CRUD + 状态流转（薄纵向切片）
+# LoopForge · 迭代 0 SPEC —— LoopRun 阶段状态机 + Script Gate（薄纵向切片）
 
-> 状态：**待评审**（SPEC 门禁：@Codex_Jasmine 复核 + @huijuan-zhao 确认后才进 Design/Code）
-> 这是 AgentHarness 流程的第一个门禁产物。SPEC 未过，不允许写代码。
+> 状态：**待评审**（SPEC 门禁：@Codex_Jasmine 更新 + @Claude / @huijuan-zhao 复核后才继续 Code）
+> 这是 AgentHarness 流程的第一个门禁产物。SPEC 未过，不允许继续扩大实现。
 
-## 0. 双 Loop 定位（为什么先做这个）
+## 0. 双 Loop 定位
 
-- **Loop A（产品能力，目标形态）**：LoopForge 接收一个需求 → 自动跑 SPEC→Design→Task→Code→Review→Test 把它交付。
+- **Loop A（产品能力，目标形态）**：LoopForge 接收一个需求 → 自动跑 SPEC → Design → Task → Code → Test → Review → Done，把需求交付出来。
 - **Loop B（开发方法，当下在做）**：我们用同一套 AgentHarness 纪律，把 LoopForge 本身一层层可验证地建出来。
-- **迭代 0 的定位**：用 Loop B 的纪律，交付**业务载体（团队任务看板）的第一条最薄纵向切片**，同时把 Harness 的门禁机器（SPEC 验收标准 / git 基线 / 测试门禁 / E2E）在真实特性上立起来。后续迭代再在此之上叠加 LoopForge 的平台能力（Loop 引擎、Tool Gateway、Guardrails、Trace）。
-- **本圈只走**：SPEC → Code → Test（Design / Review / Trace loop 后续迭代加）。
+- **迭代 0 的定位**：直接实现 LoopForge 的核心对象：一个 `LoopRun` 的阶段状态机，以及由脚本结果驱动的硬门禁。
+- **本圈只做**：LoopRun 阶段流转 + GateRecord 门禁记录 + API/脚本门禁。暂不实现真实 LLM Agent、Design Agent、Review Agent、Trace UI。
+
+一句话面试口径：
+
+> 我用 AgentLoop 的方法，先造出一个能表达 AgentLoop 阶段和硬门禁的最小系统。
 
 ## 1. 目标（迭代 0 只做这些）
 
-一个团队任务看板的最小可用纵向切片，前后端 + E2E 全通：
+一个最小可运行的 LoopForge 核心切片，前后端 + E2E 全通：
 
-1. **任务 CRUD**：创建、查询（列表 + 单条）、更新（标题/描述）、删除任务。
-2. **状态流转**：任务状态机 `todo → doing → done`，**非法流转必须被拒绝**（返回明确错误码，不改状态）。
+1. **LoopRun CRUD**：创建、查询（列表 + 单条）、更新标题、删除 LoopRun。
+2. **阶段状态机**：`spec / design / code / test / review / done` 的合法推进、合法打回、非法跳阶段拒绝。
+3. **Script Gate 门禁**：记录某个 phase 的脚本门禁结果；顺序推进必须满足当前 phase 的 required gate 已通过。
+4. **硬门禁语义**：transition API 只认 `GateRecord.status = passed` 的证据，不接受 LLM 口头判断。
 
 ## 2. 非目标（明确不做，防范围爆炸）
 
-- 不做：评论、统计看板、负责人/指派、权限、鉴权、多租户、分页排序过滤。
-- 不做：Design / Review / Trace loop（本圈只 SPEC→Code→Test）。
-- 不做：真实 LLM Agent 自动跑 loop（那是 LoopForge 的 Loop A 能力，后续迭代实现）。本圈是"人用 Harness 纪律造平台"。
+- 不做：真实 LLM Agent 自动执行 loop。
+- 不做：Design / Review / Trace / Memory 的完整平台能力。
+- 不做：多用户、权限、鉴权、多租户。
+- 不做：评论、统计看板、业务任务看板。
+- 不做：复杂 gate 编排语言；本圈只做固定 required gate。
+- 不做：生产部署。
 
 ## 3. 数据模型
 
-`Task`
+### 3.1 LoopRun
+
 | 字段 | 类型 | 约束 |
 |---|---|---|
 | id | string(uuid) | 主键，创建时生成 |
-| title | string | 必填，1–200 字符 |
-| description | string | 可选，≤2000 字符 |
-| status | enum | `todo` / `doing` / `done`，默认 `todo` |
+| title | string | 必填，1-200 字符 |
+| phase | enum | `spec` / `design` / `code` / `test` / `review` / `done`，默认 `spec` |
 | created_at | datetime(ISO) | 创建时生成 |
 | updated_at | datetime(ISO) | 每次修改刷新 |
 
+### 3.2 GateRecord
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| id | string(uuid) | 主键，创建时生成 |
+| loop_run_id | string(uuid) | 关联 LoopRun |
+| phase | enum | 记录 gate 对应的 phase |
+| gate_name | string | 例如 `spec_check` / `backend_tests` / `contract_tests` / `e2e_tests` |
+| status | enum | `passed` / `failed` |
+| evidence | string | 脚本输出摘要、测试用例名、报告路径或失败原因 |
+| created_at | datetime(ISO) | 创建时生成 |
+
 存储：SQLite（单文件、零基础设施、易测）。
 
-## 4. 状态机（核心可测逻辑）
+## 4. LoopRun 阶段状态机（核心可测逻辑）
 
-合法流转：
-- `todo → doing`
-- `doing → done`
-- `doing → todo`（撤回）
-- `done → doing`（重开）
+### 4.1 阶段集合
 
-**非法流转（必须拒绝）**：
-- `todo → done`（不能跳过 doing）
-- `done → todo`（不能直接回退到 todo）
-- 任何 `X → X`（同态流转，无意义，拒绝）
+```text
+spec -> design -> code -> test -> review -> done
+```
 
-拒绝时：HTTP 409，body `{"error":"illegal_transition","from":"todo","to":"done"}`，**状态不变**。
+`done` 是终态。
 
-**关于 `X → X`（同态流转）**：明确定义为**业务规则拒绝（409 illegal_transition）**，**不是幂等 no-op（不返回 200）**。实现必须按"拒绝"做，并由状态机单测绑定（防实现者自然做成幂等 200）。
+### 4.2 合法前进
 
-## 5. API 契约（后端）
+| From | To | Required gate |
+|---|---|---|
+| spec | design | `spec_check` passed |
+| design | code | `design_check` passed |
+| code | test | `backend_tests` passed |
+| test | review | `contract_tests` passed |
+| review | done | `e2e_tests` passed |
 
-Base: `/api/tasks`
+### 4.3 合法打回
+
+打回用于表达上游阶段需要返工。打回不要求 gate passed，但必须提供 `reason`。
+
+| From | To |
+|---|---|
+| design | spec |
+| code | design |
+| test | code |
+| review | code |
+| review | test |
+
+### 4.4 非法流转
+
+非法流转必须拒绝：HTTP 409，body `{"error":"illegal_transition","from":"spec","to":"code"}`，phase 不变。
+
+非法集合：
+
+- 任何跳阶段前进，例如 `spec -> code`、`spec -> test`、`design -> test`、`code -> review`、`test -> done`。
+- `done -> *`，终态不可再转。
+- 任何 `X -> X`，同态流转定义为业务规则拒绝，不是幂等 no-op。
+- 未列入合法前进或合法打回的任意组合。
+
+### 4.5 Gate 缺失
+
+如果是合法前进路径，但缺少当前 phase 的 required gate passed，必须拒绝：
+
+HTTP 409，body `{"error":"gate_required","phase":"spec","gate":"spec_check"}`，phase 不变。
+
+## 5. Script Gate 语义
+
+门禁必须来自确定性脚本或测试命令的结果，不来自 LLM 自评。
+
+### 5.1 GateRecord 写入规则
+
+1. `GateRecord.status` 只能是 `passed` 或 `failed`。
+2. `GateRecord.evidence` 必填，不能为空。
+3. 同一个 `loop_run_id + phase + gate_name` 可以有多条记录，transition 使用最新一条。
+4. 只有最新记录为 `passed` 时，该 gate 才算通过。
+5. `failed` gate 不能推进 phase，但可以作为复盘证据保留。
+
+### 5.2 迭代 0 固定脚本门禁
+
+| Gate | Phase | Script / Command | 判定 |
+|---|---|---|---|
+| `spec_check` | spec | `scripts/check-spec` | SPEC 无 TBD/TODO，且验收标准可映射到脚本门禁 |
+| `design_check` | design | `scripts/check-design` | 校验最小设计说明存在，且包含数据模型、API 契约、阶段流转三段 |
+| `backend_tests` | code | `scripts/test-backend` | pytest 全绿，状态机/API/契约全过 |
+| `contract_tests` | test | `scripts/test-contract` | API 字段、状态码、错误码契约全过 |
+| `e2e_tests` | review | `scripts/test-e2e` | 前端 E2E 关键路径全过 |
+
+### 5.3 Gate 输出格式
+
+脚本输出要能被记录为 GateRecord。建议结构：
+
+```json
+{
+  "gate": "backend_tests",
+  "status": "failed",
+  "evidence": "tests/test_transitions.py::test_spec_to_code_rejected failed"
+}
+```
+
+## 6. API 契约（后端）
+
+Base: `/api/loop-runs`
 
 | 方法 | 路径 | 请求 | 成功响应 | 错误 |
 |---|---|---|---|---|
-| POST | `/api/tasks` | `{title, description?}` | 201 `{Task}` | 422 校验失败 |
-| GET | `/api/tasks` | — | 200 `[Task]` | — |
-| GET | `/api/tasks/{id}` | — | 200 `{Task}` | 404 |
-| PATCH | `/api/tasks/{id}` | `{title?, description?}` | 200 `{Task}` | 404 / 422 |
-| POST | `/api/tasks/{id}/transition` | `{to}` | 200 `{Task}` | 404 / 409 非法流转 / 422 |
-| DELETE | `/api/tasks/{id}` | — | 204 | 404 |
+| POST | `/api/loop-runs` | `{title}` | 201 `{LoopRun}` | 422 |
+| GET | `/api/loop-runs` | — | 200 `[LoopRun]` | — |
+| GET | `/api/loop-runs/{id}` | — | 200 `{LoopRun}` | 404 |
+| PATCH | `/api/loop-runs/{id}` | `{title}` | 200 `{LoopRun}` | 404 / 422 |
+| DELETE | `/api/loop-runs/{id}` | — | 204 | 404 |
+| POST | `/api/loop-runs/{id}/gates` | `{phase, gate_name, status, evidence}` | 201 `{GateRecord}` | 404 / 422 |
+| GET | `/api/loop-runs/{id}/gates` | — | 200 `[GateRecord]` | 404 |
+| POST | `/api/loop-runs/{id}/transition` | `{to, reason?}` | 200 `{LoopRun}` | 404 / 409 / 422 |
 
-状态流转走独立 `/transition` 端点（而非 PATCH status），把"状态机规则"作为一等公民、便于契约与门禁定位。
+## 7. 错误 body 约定（契约测试据此稳定断言）
 
-### 5.1 错误 body 约定（契约测试据此稳定断言）
+所有错误响应统一形状 `{"error": "<code>", ...}`。
 
-所有错误响应统一形状 `{"error": "<code>", ...}`，`code` 取以下稳定值：
 | code | HTTP | 触发 | 额外字段 |
 |---|---|---|---|
-| `validation_error` | 422 | title 缺失/超长、body 非法 | `field`, `reason` |
-| `task_not_found` | 404 | id 不存在 | `id` |
-| `illegal_transition` | 409 | 非法状态流转（见 §4） | `from`, `to` |
+| `validation_error` | 422 | title 缺失/超长、body 非法、GateRecord 字段非法 | `field`, `reason` |
+| `loop_run_not_found` | 404 | loop run id 不存在 | `id` |
+| `illegal_transition` | 409 | 非法阶段流转 | `from`, `to` |
+| `gate_required` | 409 | 合法前进但缺 required gate passed | `phase`, `gate` |
+| `rollback_reason_required` | 409 | 合法打回但未提供 reason | `from`, `to` |
 
-## 6. 前端（最小）
+## 8. 前端（最小）
 
-- 任务列表页：展示所有任务（title + status 徽标）。
-- 新建任务：输入 title/description，创建。
-- 任务详情/操作：切状态按钮**只显示当前态的合法目标态**（前端不暴露非法流转入口）。
-- 删除任务。
-不追求样式，追求 E2E 可覆盖关键路径。
-> 说明：前端**不为了测非法流转而暴露坏入口**。"非法流转被拒绝"由 API/状态机测试负责（§8 A6，强行调 `/transition` 到非法目标 → 409 + 状态不变）；前端 E2E 只验证"非法目标按钮不出现"（§8 A9）。
+- LoopRun 列表页：展示 title + phase 徽标。
+- 新建 LoopRun：输入 title，创建后默认 phase=`spec`。
+- LoopRun 详情/操作：
+  - 展示当前 phase。
+  - 展示最新 GateRecord 列表。
+  - 允许新增 GateRecord（模拟脚本结果写入）。
+  - 只显示当前 phase 的合法目标按钮。
+  - 合法前进缺 gate 时，显示 `gate_required` 错误。
+  - 合法打回必须输入 reason。
+- 不为了测试非法流转而暴露坏入口。非法跳阶段由 API/状态机测试覆盖。
 
-## 7. 技术选型（可评审的决策，优先"可验证 + 快"）
+## 9. 技术选型（可评审的决策）
 
 - 后端：**Python + FastAPI + SQLite**（原生易测、契约清晰、无外部基础设施）。
 - 前端：**React + Vite**（最小页面）。
 - 测试：后端 **pytest + httpx**（单测 + 契约）；E2E **Playwright**。
-- 〔如需换栈（如 Node 全栈）在此门禁提出〕
 
-## 8. 验收标准 → 门禁映射（SPEC 的灵魂：每条需求都能被测）
+## 10. 验收标准 → 门禁映射
 
 | # | 验收标准 | 门禁类型（确定性） |
 |---|---|---|
-| A1 | 能创建任务，返回 201 + 完整 Task，默认 status=todo | 后端单测 + 契约测试 |
+| A1 | 能创建 LoopRun，返回 201 + 完整 LoopRun，默认 phase=`spec` | 后端单测 + 契约测试 |
 | A2 | title 缺失/超长返回 422，不落库 | 后端单测 |
-| A3 | 列表/单条查询返回正确数据，不存在返回 404 | 后端单测 + 契约测试 |
-| A4 | PATCH 能改 title/description，updated_at 刷新 | 后端单测 |
-| A5 | 合法流转（todo→doing→done、doing→todo、done→doing）成功改状态 | 状态机单测 |
-| A6 | **非法流转（todo→done、done→todo、X→X）返回 409 且状态不变** | 状态机单测（合法+非法全覆盖） |
-| A7 | 删除任务返回 204，再查 404 | 后端单测 |
-| A8 | 前端能创建任务、切状态、看到状态变化 | E2E |
-| A9 | 前端**只显示合法目标态、非法流转按钮不出现**（前端不暴露非法入口） | E2E |
+| A3 | 列表/单条查询返回正确数据，不存在返回 404 `loop_run_not_found` | 后端单测 + 契约测试 |
+| A4 | PATCH 能改 title，updated_at 刷新 | 后端单测 |
+| A5 | 能创建 GateRecord，status/evidence 校验正确 | 后端单测 + 契约测试 |
+| A6 | 合法前进在 required gate passed 后成功改 phase | 状态机单测 |
+| A7 | 合法前进缺 gate 返回 409 `gate_required` 且 phase 不变 | 状态机单测 |
+| A8 | 合法打回提供 reason 后成功改 phase | 状态机单测 |
+| A9 | 合法打回缺 reason 返回 409 `rollback_reason_required` 且 phase 不变 | 状态机单测 |
+| A10 | 非法跳阶段、done 后流转、X→X 返回 409 `illegal_transition` 且 phase 不变 | 状态机单测（全枚举） |
+| A11 | 删除 LoopRun 返回 204，再查 404 | 后端单测 |
+| A12 | 前端能创建 LoopRun、写入 passed gate、推进 phase、看到 phase 变化 | E2E |
+| A13 | 前端只显示合法目标 phase；缺 gate 前进时显示 gate_required 错误 | E2E |
 
-## 9. 本圈的 Harness 门禁（Definition of Done）
+## 11. 本圈的 Harness 门禁（Definition of Done）
 
 迭代 0 完成 = 以下全绿（能脚本判的绝不靠人说）：
-1. **基线前移（可执行时点）**：当前仓库只有 SPEC、无依赖无测试，直接采基线会天然失败，所以基线时点定义为——**脚手架 + 测试命令 + 空测试骨架落地之后、业务实现之前**采一次 `pytest` + lint 基线并持久化；此后每个 Code task **开始前**再采一次当时的测试状态，完成后只做前后对比，证明"新增失败都是本轮引入的、且已清零"。（这条正是我们踩过的 git-stash 事后重建污染基线的坑的正解：基线前移、不事后重建。）
-2. 后端：`pytest` 全过（A1–A7 全覆盖，含状态机合法/非法全枚举），lint（ruff）0 告警，类型检查（可选 mypy）。
-3. 契约：API 契约测试全过（字段 + 状态码 + 错误码）。
-4. 前端：E2E（Playwright）覆盖 A8/A9 三条关键路径全过。
-5. **禁止改测试逃避**：diff 命中测试文件的"放松性改动"（删断言/跳过）→ 直接判不过。
-6. 交付物：可运行的前后端 + 一键跑测试脚本 + test result + 简单 trace（本圈 trace = 测试报告 + git diff 范围）。
+
+1. **基线前移（可执行时点）**：脚手架 + 测试命令 + 空测试骨架落地之后、业务实现之前采一次 `pytest` + lint 基线并持久化；此后每个 Code task 开始前再采一次当时测试状态，完成后做前后对比。
+2. `scripts/check-spec` 通过。
+3. `scripts/test-backend` 通过：A1-A11 全覆盖，含合法前进、合法打回、缺 gate、非法跳阶段、done 终态、X→X 全枚举。
+4. `scripts/test-contract` 通过：字段、状态码、错误码契约全过。
+5. `scripts/test-e2e` 通过：A12-A13 前端关键路径全过。
+6. `scripts/check-diff` 通过：禁止删断言、skip 测试、放松门禁、绕过 GateRecord。
+7. `scripts/verify-all` 汇总以上门禁并输出结构化报告。
+8. 交付物包含：可运行的前后端、一键跑门禁脚本、test result、简单 trace（本圈 trace = gate report + git diff 范围）。
 
 ---
 
-> 评审关注点：① 薄 slice 范围是否合适（够小能跑通、又够完整能展示 Harness）；② 状态机合法/非法集合是否合理；③ 验收标准→门禁映射有没有漏"能脚本判"的；④ 技术选型。过了这个门禁再进 Code。
+> 评审关注点：① LoopRun phase 是否比业务 Task status 更贴 AgentLoop；② GateRecord 是否足够表达 script 硬门禁；③ 合法/非法阶段流转是否完整；④ 验收标准到脚本门禁是否都能确定性判定。
