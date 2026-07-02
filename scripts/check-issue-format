@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# 门禁: check-issue-format —— 校验 issue 格式（docs/rules/issue-format.md）。
+# 本地模式校验 docs/issues/F*.md（阻断）；传 --github 额外校验 GitHub issue。
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY="backend/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="backend/.venv/bin/python"
+[ -x "$PY" ] || PY="python"
+"$PY" scripts/check_issue_format.py "$@"

@@ -42,6 +42,13 @@ $diff = git diff "$Baseline..HEAD" -- 'backend/tests' 'e2e' 2>$null
 $weaken = $diff | Select-String -Pattern '^-.*\bassert\b|^\+.*(pytest\.skip|@pytest\.mark\.skip|xfail|test\.skip|\.only\()' -ErrorAction SilentlyContinue
 Add-Gate "check-diff" (-not $weaken) $(if ($weaken) { "疑似放松测试 $($weaken.Count) 处" } else { "无放松性改动" })
 
+# 6. check-issue-format —— docs/issues/F*.md 符合 issue 格式规范（docs/rules/issue-format.md）
+$env:PYTHONIOENCODING = "utf-8"
+$issueOut = & $Python (Join-Path $Root "scripts\check_issue_format.py") 2>&1 | Out-String
+$issueRc = $LASTEXITCODE
+$issueTail = ($issueOut -split "`n" | Where-Object { $_ -match 'PASSED|FAILED|FAIL ' } | Select-Object -First 3) -join '; '
+Add-Gate "check-issue-format" ($issueRc -eq 0) "check_issue_format=$issueRc $issueTail"
+
 # 汇总报告
 Write-Host ""
 Write-Host "==== verify-all 门禁汇总 ===="
