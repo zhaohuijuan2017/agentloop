@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# 门禁: backend_tests —— ruff lint + 全部后端单测/状态机全枚举 (SPEC §5.2, §11)
+set -euo pipefail
+cd "$(dirname "$0")/../backend"
+PY=".venv/Scripts/python.exe"
+[ -x "$PY" ] || PY=".venv/bin/python"
+"$PY" -m ruff check .
+"$PY" -m pytest -q

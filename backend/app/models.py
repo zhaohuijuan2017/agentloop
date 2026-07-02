@@ -1,0 +1,53 @@
+"""Pydantic 模型与请求体（SPEC iter0 §3, §6）。"""
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+
+from .state_machine import Phase
+
+
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+# ---- 请求体 ----
+class LoopRunCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class LoopRunUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class GateRecordCreate(BaseModel):
+    phase: Phase
+    gate_name: str = Field(min_length=1, max_length=100)
+    status: str = Field(pattern="^(passed|failed)$")
+    evidence: str = Field(min_length=1, max_length=4000)
+
+
+class TransitionRequest(BaseModel):
+    to: Phase
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+# ---- 响应体 ----
+class LoopRun(BaseModel):
+    id: str
+    title: str
+    description: str | None
+    phase: Phase
+    created_at: str
+    updated_at: str
+
+
+class GateRecord(BaseModel):
+    id: str
+    loop_run_id: str
+    phase: Phase
+    gate_name: str
+    status: str
+    evidence: str
+    created_at: str

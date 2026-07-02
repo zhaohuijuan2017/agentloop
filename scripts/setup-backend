@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 创建后端 venv 并安装依赖（.venv 不入库，克隆后先跑这个）
+set -euo pipefail
+cd "$(dirname "$0")/../backend"
+python -m venv .venv
+PY=".venv/Scripts/python.exe"
+[ -x "$PY" ] || PY=".venv/bin/python"
+"$PY" -m pip install -q --upgrade pip
+"$PY" -m pip install -q fastapi "uvicorn[standard]" httpx pytest ruff
+echo "backend deps installed."

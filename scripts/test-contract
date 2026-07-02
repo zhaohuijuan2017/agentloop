@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# 门禁: contract_tests —— API 字段/状态码/错误码契约 (SPEC §5.2, §11)
+set -euo pipefail
+cd "$(dirname "$0")/../backend"
+PY=".venv/Scripts/python.exe"
+[ -x "$PY" ] || PY=".venv/bin/python"
+"$PY" -m pytest -q tests/test_api.py

@@ -1,0 +1,17 @@
+[project]
+name = "loopforge-backend"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi", "uvicorn[standard]", "httpx", "pydantic"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
