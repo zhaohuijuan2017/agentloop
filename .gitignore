@@ -6,3 +6,6 @@ node_modules/
 *.db
 dist/
 .pytest_cache/
+.tmp/
+playwright-report/
+test-results/
