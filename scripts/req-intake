@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# CLI: req-intake —— 从 GitHub Feature 生成 F 建档骨架（H1 / F001）。
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY="backend/.venv/Scripts/python.exe"
+[ -x "$PY" ] || PY="backend/.venv/bin/python"
+[ -x "$PY" ] || PY="python"
+"$PY" scripts/req_intake.py "$@"

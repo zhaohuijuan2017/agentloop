@@ -20,7 +20,9 @@ def init_db(path: str | None = None) -> None:
                 description TEXT,
                 phase TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                f_id TEXT,
+                source_issue_url TEXT
             );
             CREATE TABLE IF NOT EXISTS gate_records (
                 id TEXT PRIMARY KEY,
@@ -33,6 +35,11 @@ def init_db(path: str | None = None) -> None:
             );
             """
         )
+        # 幂等迁移：给既有 dev 库补回链列（IF NOT EXISTS 不会 ALTER）。
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(loop_runs)")}
+        for col in ("f_id", "source_issue_url"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE loop_runs ADD COLUMN {col} TEXT")
         conn.commit()
     finally:
         conn.close()

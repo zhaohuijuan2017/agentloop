@@ -14,6 +14,17 @@ def now_iso() -> str:
 class LoopRunCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    # H1 需求接入（F001）：传 f_id 触发 check-issue-format 准入门禁；缺省维持既有行为。
+    f_id: str | None = Field(default=None, pattern=r"^F\d{3}$")
+    source_issue_url: str | None = Field(default=None, max_length=500)
+
+
+class FeatureIntakeRequest(BaseModel):
+    """H1：从 GitHub Feature issue 生成 F 建档骨架。"""
+
+    title: str = Field(min_length=1, max_length=200)
+    source_issue_url: str = Field(min_length=1, max_length=500)
+    slug: str | None = Field(default=None, max_length=100)
 
 
 class LoopRunUpdate(BaseModel):
@@ -45,6 +56,8 @@ class LoopRun(BaseModel):
     phase: Phase
     created_at: str
     updated_at: str
+    f_id: str | None = None
+    source_issue_url: str | None = None
 
 
 class GateRecord(BaseModel):

@@ -88,6 +88,56 @@ class Report:
         self.warns.append(f"[{scope}] {msg}")
 
 
+def validate_f_file(f: Path, seen_ids: dict[str, str], rep: Report, scope: str | None = None) -> None:
+    """校验单个 F 文档，把问题写进 rep。seen_ids 跨文件累计以检测重号。"""
+    scope = scope or f"docs/issues/{f.name}"
+    fm_match = F_FILE_RE.match(f.name)
+    if not fm_match:
+        rep.err(scope, "文件名不匹配 F<NNN>-<slug>.md")
+        return
+    num = fm_match.group(1)
+    text = f.read_text(encoding="utf-8")
+
+    # 占位标记
+    hits = PLACEHOLDER.findall(text)
+    if hits:
+        rep.err(scope, f"命中占位标记 {len(hits)} 处: {sorted(set(hits))}")
+
+    # frontmatter
+    fm = parse_frontmatter(text)
+    if fm is None:
+        rep.err(scope, "缺少可解析的 YAML frontmatter")
+    else:
+        for key in REQUIRED_FM:
+            if not fm.get(key):
+                rep.err(scope, f"frontmatter 缺字段或为空: {key}")
+        fid = fm.get("id", "")
+        if fid and fid != f"F{num}":
+            rep.err(scope, f"id={fid} 与文件名编号 F{num} 不一致")
+        if fid:
+            if fid in seen_ids:
+                rep.err(scope, f"编号 {fid} 重复（另见 {seen_ids[fid]}）")
+            else:
+                seen_ids[fid] = f.name
+        st = fm.get("状态", "")
+        if st and st not in STATUS_ENUM:
+            rep.err(scope, f"状态『{st}』不在枚举内 {STATUS_ENUM}")
+        ct = fm.get("创建时间", "")
+        if ct and not DATE_RE.match(ct):
+            rep.err(scope, f"创建时间『{ct}』不是合法 ISO 日期 YYYY-MM-DD")
+
+    # 必备章节
+    bodies = section_bodies(text)
+    for sec in REQUIRED_SECTIONS_F:
+        if sec not in bodies:
+            rep.err(scope, f"缺必备章节: ## {sec}")
+        elif not bodies[sec].strip():
+            rep.err(scope, f"章节为空: ## {sec}")
+    ac = bodies.get("Acceptance Criteria", "")
+    if ac and not any(line.strip() for line in ac.splitlines()):
+        rep.err(scope, "Acceptance Criteria 无有效条目")
+
+
 def check_local_f(rep: Report) -> int:
     """校验 docs/issues/F*.md。返回校验的文件数。"""
     issues_dir = repo_root() / "docs" / "issues"
@@ -97,53 +147,16 @@ def check_local_f(rep: Report) -> int:
     files = sorted(issues_dir.glob("F*.md"))
     seen_ids: dict[str, str] = {}
     for f in files:
-        scope = f"docs/issues/{f.name}"
-        fm_match = F_FILE_RE.match(f.name)
-        if not fm_match:
-            rep.err(scope, "文件名不匹配 F<NNN>-<slug>.md")
-            continue
-        num = fm_match.group(1)
-        text = f.read_text(encoding="utf-8")
-
-        # 占位标记
-        hits = PLACEHOLDER.findall(text)
-        if hits:
-            rep.err(scope, f"命中占位标记 {len(hits)} 处: {sorted(set(hits))}")
-
-        # frontmatter
-        fm = parse_frontmatter(text)
-        if fm is None:
-            rep.err(scope, "缺少可解析的 YAML frontmatter")
-        else:
-            for key in REQUIRED_FM:
-                if not fm.get(key):
-                    rep.err(scope, f"frontmatter 缺字段或为空: {key}")
-            fid = fm.get("id", "")
-            if fid and fid != f"F{num}":
-                rep.err(scope, f"id={fid} 与文件名编号 F{num} 不一致")
-            if fid:
-                if fid in seen_ids:
-                    rep.err(scope, f"编号 {fid} 重复（另见 {seen_ids[fid]}）")
-                else:
-                    seen_ids[fid] = f.name
-            st = fm.get("状态", "")
-            if st and st not in STATUS_ENUM:
-                rep.err(scope, f"状态『{st}』不在枚举内 {STATUS_ENUM}")
-            ct = fm.get("创建时间", "")
-            if ct and not DATE_RE.match(ct):
-                rep.err(scope, f"创建时间『{ct}』不是合法 ISO 日期 YYYY-MM-DD")
-
-        # 必备章节
-        bodies = section_bodies(text)
-        for sec in REQUIRED_SECTIONS_F:
-            if sec not in bodies:
-                rep.err(scope, f"缺必备章节: ## {sec}")
-            elif not bodies[sec].strip():
-                rep.err(scope, f"章节为空: ## {sec}")
-        ac = bodies.get("Acceptance Criteria", "")
-        if ac and not any(line.strip() for line in ac.splitlines()):
-            rep.err(scope, "Acceptance Criteria 无有效条目")
+        validate_f_file(f, seen_ids, rep)
     return len(files)
+
+
+def check_one_file(rep: Report, path: Path) -> None:
+    """--file 模式：校验单个指定 F 文档（准入门禁用，见 F001）。"""
+    if not path.is_file():
+        rep.err(str(path), "文件不存在")
+        return
+    validate_f_file(path, {}, rep, scope=path.name)
 
 
 def check_github(rep: Report) -> None:
@@ -200,14 +213,21 @@ def check_github(rep: Report) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="check-issue-format 硬门禁")
     ap.add_argument("--github", action="store_true", help="额外校验 GitHub issue（gh 不可用降级 warn）")
+    ap.add_argument("--file", metavar="PATH", help="只校验单个 F 文档（准入门禁用，见 F001）")
     args = ap.parse_args()
 
     rep = Report()
-    n = check_local_f(rep)
+    if args.file:
+        check_one_file(rep, Path(args.file))
+        n = 1
+    else:
+        n = check_local_f(rep)
     if args.github:
         check_github(rep)
 
     print("==== check-issue-format ====")
+    if args.file:
+        print(f"单文件模式: {args.file}")
     print(f"本地 F 文件: {n} 个" + ("，含 GitHub 校验" if args.github else ""))
     for w in rep.warns:
         print(f"  warn  {w}")

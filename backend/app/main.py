@@ -10,9 +10,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import db
+from . import db, intake
 from .gate_runner import GATE_PHASE, GateNotRunnable, UnknownGate, run_gate
 from .models import (
+    FeatureIntakeRequest,
     GateRecordCreate,
     GateRunRequest,
     LoopRunCreate,
@@ -57,9 +58,12 @@ async def _validation_handler(_: Request, exc: RequestValidationError):
 
 # ---- 行/对象映射 ----
 def _row_to_loop_run(r) -> dict:
+    keys = r.keys()
     return {
         "id": r["id"], "title": r["title"], "description": r["description"],
         "phase": r["phase"], "created_at": r["created_at"], "updated_at": r["updated_at"],
+        "f_id": r["f_id"] if "f_id" in keys else None,
+        "source_issue_url": r["source_issue_url"] if "source_issue_url" in keys else None,
     }
 
 
@@ -79,17 +83,46 @@ def _get_loop_run_or_404(conn, run_id: str):
 
 
 # ---- LoopRun CRUD ----
+# ---- H1 需求接入闭环（F001）----
+@app.post("/api/features/intake", status_code=201)
+def feature_intake(payload: FeatureIntakeRequest):
+    """从 GitHub Feature issue 生成 F 建档骨架（自动分配编号、回填来源）。"""
+    try:
+        f_id, path = intake.write_f_skeleton(
+            payload.title, payload.source_issue_url, slug=payload.slug
+        )
+    except FileExistsError as e:
+        raise AppError(409, "f_number_conflict", path=str(e)) from e
+    rel = path.relative_to(intake.repo_root()) if path.is_relative_to(intake.repo_root()) else path
+    return {
+        "f_id": f_id, "path": str(rel).replace("\\", "/"),
+        "source_issue_url": payload.source_issue_url,
+        "title": intake.clean_feature_title(payload.title),
+    }
+
+
 @app.post("/api/loop-runs", status_code=201)
 def create_loop_run(payload: LoopRunCreate):
+    # 传 f_id 时走准入门禁：F 文档必须过 check-issue-format 才允许建 LoopRun（AC2/AC3）。
+    if payload.f_id:
+        f_path = intake.resolve_f_file(payload.f_id)
+        if f_path is None:
+            raise AppError(404, "f_doc_not_found", f_id=payload.f_id)
+        ok, evidence = intake.run_issue_format_gate(f_path)
+        if not ok:
+            raise AppError(409, "issue_format_gate_failed", f_id=payload.f_id, evidence=evidence)
+
     now = now_iso()
     run = {
         "id": str(uuid.uuid4()), "title": payload.title,
         "description": payload.description, "phase": Phase.spec.value,
         "created_at": now, "updated_at": now,
+        "f_id": payload.f_id, "source_issue_url": payload.source_issue_url,
     }
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO loop_runs VALUES (:id,:title,:description,:phase,:created_at,:updated_at)",
+            "INSERT INTO loop_runs VALUES "
+            "(:id,:title,:description,:phase,:created_at,:updated_at,:f_id,:source_issue_url)",
             run,
         )
     return run
