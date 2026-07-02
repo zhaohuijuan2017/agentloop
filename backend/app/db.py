@@ -33,6 +33,16 @@ def init_db(path: str | None = None) -> None:
                 evidence TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS phase_executions (
+                id TEXT PRIMARY KEY,
+                loop_run_id TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                status TEXT NOT NULL,
+                artifact_path TEXT,
+                detail TEXT,
+                created_at TEXT NOT NULL,
+                finished_at TEXT
+            );
             """
         )
         # 幂等迁移：给既有 dev 库补回链列（IF NOT EXISTS 不会 ALTER）。

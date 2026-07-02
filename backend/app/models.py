@@ -68,3 +68,16 @@ class GateRecord(BaseModel):
     status: str
     evidence: str
     created_at: str
+
+
+class PhaseExecution(BaseModel):
+    """H2 阶段执行记录（F002）。"""
+
+    id: str
+    loop_run_id: str
+    phase: Phase
+    status: str
+    artifact_path: str | None
+    detail: str | None
+    created_at: str
+    finished_at: str | None

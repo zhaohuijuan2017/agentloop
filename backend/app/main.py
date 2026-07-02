@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import db, intake
+from . import db, executor, intake
 from .gate_runner import GATE_PHASE, GateNotRunnable, UnknownGate, run_gate
 from .models import (
     FeatureIntakeRequest,
@@ -72,6 +72,14 @@ def _row_to_gate(r) -> dict:
         "id": r["id"], "loop_run_id": r["loop_run_id"], "phase": r["phase"],
         "gate_name": r["gate_name"], "status": r["status"],
         "evidence": r["evidence"], "created_at": r["created_at"],
+    }
+
+
+def _row_to_execution(r) -> dict:
+    return {
+        "id": r["id"], "loop_run_id": r["loop_run_id"], "phase": r["phase"],
+        "status": r["status"], "artifact_path": r["artifact_path"],
+        "detail": r["detail"], "created_at": r["created_at"], "finished_at": r["finished_at"],
     }
 
 
@@ -217,6 +225,40 @@ def run_gate_endpoint(run_id: str, payload: GateRunRequest):
             rec,
         )
     return rec
+
+
+# ---- H2 阶段执行器（F002）----
+@app.post("/api/loop-runs/{run_id}/executions", status_code=201)
+def dispatch_execution(run_id: str):
+    """对 run 当前 phase 派发一次 agent 执行，产出落盘产物 + 执行记录。执行不推进 phase。"""
+    with db.connect() as conn:
+        run = _row_to_loop_run(_get_loop_run_or_404(conn, run_id))
+        try:
+            status, artifact, detail = executor.run_phase(run)
+        except executor.PhaseNotExecutable as e:
+            raise AppError(409, "phase_not_executable", phase=e.phase) from e
+        now = now_iso()
+        rec = {
+            "id": str(uuid.uuid4()), "loop_run_id": run_id, "phase": run["phase"],
+            "status": status, "artifact_path": artifact, "detail": detail,
+            "created_at": now, "finished_at": now,
+        }
+        conn.execute(
+            "INSERT INTO phase_executions VALUES "
+            "(:id,:loop_run_id,:phase,:status,:artifact_path,:detail,:created_at,:finished_at)",
+            rec,
+        )
+    return rec
+
+
+@app.get("/api/loop-runs/{run_id}/executions")
+def list_executions(run_id: str):
+    with db.connect() as conn:
+        _get_loop_run_or_404(conn, run_id)
+        rows = conn.execute(
+            "SELECT * FROM phase_executions WHERE loop_run_id=? ORDER BY created_at, rowid", (run_id,)
+        ).fetchall()
+    return [_row_to_execution(r) for r in rows]
 
 
 def _latest_gate_passed(conn, run_id: str, gate_name: str) -> bool:
