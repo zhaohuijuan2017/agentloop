@@ -1,0 +1,8 @@
+ITERATION_0_SPEC.md
+__pycache__/
+*.pyc
+node_modules/
+.venv/
+*.db
+dist/
+.pytest_cache/
