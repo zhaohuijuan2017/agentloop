@@ -9,4 +9,6 @@ dist/
 .tmp/
 playwright-report/
 test-results/
+.playwright-mcp/
 .idea/
+*.png
